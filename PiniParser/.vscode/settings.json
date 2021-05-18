@@ -1,0 +1,17 @@
+{
+    "files.associations": {
+        "cstdint": "cpp",
+        "pixdesc.h": "c",
+        "avassert.h": "c",
+        "log.h": "c",
+        "version.h": "c",
+        "stdarg.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "ranges": "c",
+        "chrono": "c",
+        "cmath": "c",
+        "includee.h": "c"
+    }
+}

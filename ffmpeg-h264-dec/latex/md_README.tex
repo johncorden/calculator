@@ -1,0 +1,26 @@
+\href{https://travis-ci.org/shengbinmeng/ffmpeg-h264-dec}{\texttt{ }}
+
+H.\+264 decoder extracted from F\+Fmpeg\hypertarget{md_README_autotoc_md1}{}\doxysection{Extraction}\label{md_README_autotoc_md1}
+Files related to H.\+264 decoding are extracted from \href{https://github.com/FFmpeg/FFmpeg}{\texttt{ F\+Fmpeg}} and put in the folder ./ffmpeg-\/src.
+
+The checkout commit is \href{https://github.com/FFmpeg/FFmpeg/commit/2f76157eb05bf63725f96167feda6b2e07501c7e}{\texttt{ 2f76157eb05bf63725f96167feda6b2e07501c7e}}.
+
+Some files may be modified (a little).\hypertarget{md_README_autotoc_md2}{}\doxysection{Build the decoder}\label{md_README_autotoc_md2}
+Run {\ttfamily make}, and you will get the executable {\ttfamily h264dec}.\hypertarget{md_README_autotoc_md3}{}\doxysection{Compile into Java\+Script}\label{md_README_autotoc_md3}
+With the tool \href{http://kripken.github.io/emscripten-site/}{\texttt{ Emscripten}}, the C code can also be compiled into Java\+Script\+:
+
+
+\begin{DoxyItemize}
+\item Run {\ttfamily emmake make h264dec.\+html} to get h264dec.\+html (and its supporting files), which can be open in a browser when served using a web server (e.\+g., with {\ttfamily python3 -\/m http.\+server}). Note that since we can not pass arguments to H\+T\+ML pages, you should modify {\ttfamily main.\+c} (see the commented line in the main function) to let the program starts decoding without arguments.
+\item Run {\ttfamily emmake make h264dec.\+node.\+js} to get h264dec.\+node.\+js, which can be executed by Node.\+js\+: {\ttfamily node h264dec.\+node.\+js}.
+\end{DoxyItemize}
+
+({\ttfamily emmake} comes with Emscripten; {\ttfamily make clean} is usually needed before building for another platform.)\hypertarget{md_README_autotoc_md4}{}\doxysection{Use in Java\+Script player}\label{md_README_autotoc_md4}
+In the folder ./javascript, run {\ttfamily emmake make} to build Decoder.\+js, which is used in a Java\+Script TS file player demo\+: \href{https://github.com/shengbinmeng/javascript-ts-player}{\texttt{ https\+://github.\+com/shengbinmeng/javascript-\/ts-\/player}}.\hypertarget{md_README_autotoc_md5}{}\doxysection{Future work}\label{md_README_autotoc_md5}
+
+\begin{DoxyEnumerate}
+\item Compare performance with \href{https://github.com/mbebenita/Broadway}{\texttt{ Broadway\textquotesingle{}s}} that is based on Android\textquotesingle{}s software H.\+264 decoder. No big difference maybe, but the latter only supports baseline profile.
+\item Optimize Java\+Script code generation, e.\+g., investigate Emscripten flags, use S\+I\+MD.
+\item Remove unused code. Current extraction is file based. A lot of code in some files are not used by H.\+264 decoding. However, changing file content will make it harder to sync with F\+Fmpeg version update.
+\item Abstract a better interface and implement a better demo player. 
+\end{DoxyEnumerate}
