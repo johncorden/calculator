@@ -1,7 +1,7 @@
 import argparse
 import copy
 import sys
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 import os
 from pycparser import c_ast, c_parser, parse_file
 import utils.map_all_includes as mai
@@ -35,6 +35,23 @@ class PiniParser():
     def parse(self, ast: c_ast.Node, context: str, scopes: ScopesList = ScopesList(), decl_history: Set[str] = set()) -> List[str]:
         children = ast.children()
 
+        """ Parses a given syntax tree and marks all pini-variables.
+        The marked variables will be appended into self.marked with their full path.
+
+        :type self: PiniParser
+        :param self: The object of the class
+
+        :type ast: c_ast.Node 
+        :param ast: the syntax tree given for parsing
+
+        :type context: string
+        :param context: the current context of the parsing (scopes)
+
+        :type scopes: ScopesList
+        :param scopes: a list of counter for [if/for/while/else] so we could know which scope are we in.
+
+        :rtype: bool
+        """
         if len(children) == 0:
             return True
 
@@ -173,6 +190,15 @@ class PiniParser():
                 continue
 
     def stringify_lvalue(self, ast: c_ast.Node) -> str:
+        """given an lvalue, return a string value representing this lvalue.
+
+        Args:
+            ast (c_ast.Node): the abstract syntax tree of the given lvalue
+
+        Returns:
+            str: a string represents the given lvalue
+        """
+
         if type(ast) is c_ast.StructRef:
             return self.stringify_lvalue(ast.name) + ast.type + self.stringify_lvalue(ast.field)
         if type(ast) is c_ast.ID:
@@ -182,7 +208,15 @@ class PiniParser():
         if type(ast) is c_ast.ArrayRef:
             return self.stringify_lvalue(ast.name)
 
-    def handle_decl(self, ast: c_ast.Node, context: str, decl_history) -> None:
+    def handle_decl(self, ast: c_ast.Node, context: str, decl_history: Set[str]) -> None:
+        """Handle a declaration of a variable, mark all variables that appreas in line.
+
+        Args:
+            ast (c_ast.Node): the abstract syntax tree of the input
+            context (str): the current context (scopes) of the parsing 
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+        """
+
         if hasattr(ast, "name"):
             decl_history.add(PiniParser.get_contexted_name(
                 self.stringify_lvalue(ast.name), context))
@@ -203,28 +237,73 @@ class PiniParser():
 
             self.mark_subtree(ast, context, decl_history)
 
-    def handle_if(self, ast: c_ast.Node, context: str, scopes: ScopesList, decl_history) -> None:
+    def handle_if(self, ast: c_ast.Node, context: str, scopes: ScopesList, decl_history: Set[str]) -> None:
+        """Parse an if statement and mark all variables.
+
+        Args:
+            ast (c_ast.Node): ast of the if statement
+            context (str): the current context (scopes) of the parsing 
+            scopes (ScopesList): a list of counter for [if/for/while/else] so we could know which scope are we in.
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+        """
+
         self.parse(ast, context, copy.deepcopy(scopes), decl_history)
 
     def handle_binary_op(self, ast: c_ast.Node, context: str, decl_history) -> None:
+        """Handle a binary op and mark all variables that should be marked.
+
+        Args:
+            ast (c_ast.Node): syntax tree of the binary op
+            scopes (ScopesList): a list of counter for [if/for/while/else] so we could know which scope are we in.
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+        """
+
         if type(ast) is not c_ast.BinaryOp:
             return
 
         if self.is_pini_var_exists(ast, context, decl_history):
             self.mark_subtree(ast, context, decl_history)
 
-    def handle_loop(self, ast: c_ast.Node, context: str, scopes: ScopesList, loop_name: str, decl_history) -> None:
+    def handle_loop(self, ast: c_ast.Node, context: str, scopes: ScopesList, loop_name: str, decl_history: Set[str]) -> None:
+        """Handle any loop (while/for) and mark all variables inside
+
+        Args:
+            ast (c_ast.Node): syntax tree of the loop
+            context (str): the current context (scopes) of the parsing 
+            scopes (ScopesList): a list of counter for [if/for/while/else] so we could know which scope are we in.
+            loop_name (str): this is a generic function that can parse either for or while, so we need to specify which one for context purposes.
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+        """
+
         self.loop_parse_wrapper(
             ast, context + f"{loop_name}[{str(scopes[f'{loop_name}'])}]@", copy.deepcopy(scopes), loop_name, decl_history)
 
-    def loop_parse_wrapper(self, ast: c_ast.Node, context: str, scopes: ScopesList, loop_name: str, decl_history) -> List[str]:
+    def loop_parse_wrapper(self, ast: c_ast.Node, context: str, scopes: ScopesList, loop_name: str, decl_history: Set[str]) -> List[str]:
+        """A wrapper function for parsing loops, this function increases the loop scopes cell (we have a new loop and hence need to increase this loop counter by 1).
+
+        Args:
+            ast (c_ast.Node): syntax tree of the loop
+            context (str): the current context (scopes) of the parsing 
+            scopes (ScopesList): a list of counter for [if/for/while/else] so we could know which scope are we in.
+            loop_name (str): this is a generic function that can parse either for or while, so we need to specify which one for context purposes.
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+        """
+
         scopes[f"{loop_name}"].append(1)
         self.parse(ast, context, scopes, decl_history)
 
-    def handle_unary_op(self, ast: c_ast.Node, context: str) -> None:
-        pass
+    def is_pini_var_exists(self, ast: c_ast.Node, context: str, decl_history: Set[str]) -> bool:
+        """Check wheter some pini var exists in the given syntax tree.
 
-    def is_pini_var_exists(self, ast: c_ast.Node, context: str, decl_history) -> bool:
+        Args:
+            ast (c_ast.Node): input syntax tree
+            context (str): the current context (scopes) of the parsing 
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+
+        Returns:
+            bool: True if pini var exists and False otherwise
+        """
+
         children = ast.children()
 
         if len(children) == 0:
@@ -258,7 +337,14 @@ class PiniParser():
 
         return False
 
-    def mark_subtree(self, ast: c_ast.Node, context: str, decl_history):
+    def mark_subtree(self, ast: c_ast.Node, context: str, decl_history: Set[str]):
+        """Mark all variables in a syntex tree. variables in function calls will not be marked.
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+            context (str): the current context (scopes) of the parsing 
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+        """
         children = ast.children()
 
         if len(children) == 0:
@@ -280,7 +366,19 @@ class PiniParser():
         for _, child in children:
             self.mark_subtree(child, context, decl_history)
 
-    def link_non_local_function(self, ast):
+    def link_non_local_function(self,  ast: c_ast.Node) -> Tuple[str, str, c_ast.Node]:
+        """If a function was called, and can't be found locally, we would like to link it from the project.
+        In order to do that, we build an include graph for the project and try to find a path from the current file to the called function.
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+
+        Returns:
+            in case of success:
+                Tuple[str, PiniParser, c_ast.Node]: [the name of the file declaring the function found, the parser for the function, the ast of the function]
+            in case of failure:
+                Tuple[str, PiniParser, c_ast.Node]: "", None, None
+        """
         if ast.name.name not in self.graph_manager.function_counter:
             # function was not found in graph and hence can't be linked
             self.logger.log(f"{ast.name.name} || Function can't be found")
@@ -317,7 +415,18 @@ class PiniParser():
         self.linked_functions[ast.name.name] = linked_function_parser
         return file_declaring_function_name, linked_function_parser, file_found_ast
 
-    def parse_called_function(self, ast: c_ast.Node, call_context: str, decl_history: Dict[str, c_ast.Node], scopes: ScopesList = ScopesList()) -> List[bool]:
+    def parse_called_function(self, ast: c_ast.Node, call_context: str, decl_history: Set[str], scopes: ScopesList = ScopesList()) -> bool:
+        """Parse and mark a call to function. This requires to identify all pini variables from call so we could parse the function.
+
+        Args:
+            ast (c_ast.Node): input syntax tree of called function
+            context (str): the current context (scopes) of the parsing 
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+            scopes (ScopesList): a list of counter for [if/for/while/else] so we could know which scope are we in.
+
+        Returns:
+            bool: True if success, False if failure
+        """
         file_context = self.filename
         if ast.name.name not in self.functions:
             name, linked_function_parser, file_found_ast = self.link_non_local_function(ast)
@@ -347,7 +456,18 @@ class PiniParser():
 
         return True
 
-    def find_function_def_in_tree(self, ast, function_name):
+    def find_function_def_in_tree(self, ast: c_ast.Node, function_name: str) -> c_ast.Node:
+        """Find a function definition in a file.
+        Ths is mainly used for finding where a function is defined in order to parse it.
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+            function_name (str): the name of the function we are trying to find.
+
+        Returns:
+            c_ast.Node: the function definition found if found otherwise None
+        """
+
         if type(ast) is c_ast.FuncDef and ast.decl.name == function_name:
             return ast
 
@@ -358,7 +478,19 @@ class PiniParser():
 
         return None
 
-    def get_pini_param_map(self, ast: c_ast.Node, context: str, def_params: List[str], decl_history) -> List[bool]:
+    def get_pini_param_map(self, ast: c_ast.Node, context: str, def_params: List[str], decl_history: Set[str]) -> List[bool]:
+        """This function returns which of the variables used in the function call are pini.
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+            context (str): the current context (scopes) of the parsing 
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+            scopes (ScopesList): a list of counter for [if/for/while/else] so we could know which scope are we in.
+
+        Returns:
+            List[bool]: a list of booleans such that cell i is true if argument i is pini.
+        """
+
         params_asts = PiniParser.get_func_call_params(ast)
         result = [False] * len(params_asts)
         trues_count = -1
@@ -374,7 +506,17 @@ class PiniParser():
 
         return result
 
-    def is_there_pini_return(self, ast: c_ast.Node, context: str, decl_history) -> bool:
+    def is_there_pini_return(self, ast: c_ast.Node, context: str, decl_history: Set[str]) -> bool:
+        """Checks whether there is a return in the function that returns a marked variable (pini-var).
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+            context (str): the current context (scopes) of the parsing 
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+
+        Returns:
+            bool: [description]
+        """
         children = ast.children()
 
         if type(ast) is c_ast.Return:
@@ -391,9 +533,28 @@ class PiniParser():
         return False
 
     def is_variable_marked(self, var_name: str) -> bool:
+        """Check if a variable is marked.
+        This is not a trivial task since we only know the current context, but it might have been defined in an upper scope.
+
+        Args:
+            var_name (str): The name of the variable to check
+
+        Returns:
+            bool: True if marked, false otherwise
+        """
+
         return self.is_defined_in_upper_scope(var_name, self.marked)[0]
 
-    def find_definition_scope(self, var_name: str, decl_history) -> bool:
+    def find_definition_scope(self, var_name: str, decl_history: Set[str]) -> str:
+        """find the definition scope of a variable, this is used in order to check whether a variable is marked.
+
+        Args:
+            var_name (str): the name of the variable to find
+            decl_history (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+
+        Returns:
+            str: the name of the variable definition
+        """
         _, var_names = self.is_defined_in_upper_scope(var_name, decl_history)
 
         for name in var_names:
@@ -404,6 +565,15 @@ class PiniParser():
         return var_name
 
     def is_defined_in_upper_scope(self, var_name: str, set_to_check: Set[str]) -> bool:
+        """Check if a variable is declared in an upper scope. 
+
+        Args:
+            var_name (str): the name of the variable to find
+            set_to_check (Set[str]): a set that contains all declarations of variables (so we could know what variable to mark)
+
+        Returns:
+            bool: True if defined, False otherwise.
+        """
         scopes = var_name.split(DELIMITER)
         var_name = scopes[-1]
         scopes = scopes[:-1]
@@ -417,6 +587,14 @@ class PiniParser():
 
     @staticmethod
     def get_func_def_params(ast: c_ast.Node) -> List[str]:
+        """Get a list of the parameters specified in the function declaration.
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+
+        Returns:
+            List[str]: the list of parameters.
+        """
         if type(ast) is not c_ast.FuncDef:
             return []
 
@@ -427,6 +605,14 @@ class PiniParser():
 
     @staticmethod
     def get_func_call_params(ast: c_ast.Node) -> List[str]:
+        """Get a list of params of the function call
+
+        Args:
+            ast (c_ast.Node): input syntax tree
+
+        Returns:
+            List[str]: the list of parameters.
+        """
         if type(ast) is not c_ast.FuncCall:
             return []
 
@@ -437,18 +623,55 @@ class PiniParser():
 
     @staticmethod
     def contextify(name: str, context: str, delimiter: str = DELIMITER) -> str:
+        """Get a current context and a name found and return the contexted name.
+
+        Args:
+            name (str): the name of the variable to contextify
+            context (str): current context
+            delimiter (str, optional): which delimiter should be used, you should not change this. Defaults to DELIMITER.
+
+        Returns:
+            str: The contexted name
+        """
         return context + name + delimiter
 
     @staticmethod
-    def contextify_list(str_to_contextify, delimiter: str = DELIMITER) -> str:
-        return DELIMITER.join(str_to_contextify)
+    def contextify_list(str_list_to_contextify: List[str], delimiter: str = DELIMITER) -> str:
+        """contexify a list of paramters (join them with delimiter).
+
+        Args:
+            str_to_contextify (List[str]): List to join with the delimiter
+            delimiter (str, optional): which delimiter should be used, you should not change this. Defaults to DELIMITER.
+
+        Returns:
+            str: The contexted name
+        """
+        return DELIMITER.join(str_list_to_contextify)
 
     @staticmethod
     def get_contexted_name(name: str, context: str) -> str:
+        """a context always contains DELIMITER at the end. so get the contexted name using the context and the name only.
+        This deffers from contextify method because contextify returns a new context (add @ at the end) and this function return the contexified name.
+
+        Args:
+            name (str): the name to return the contexted name
+            context (str): the current context
+
+        Returns:
+            str: The contexted name
+        """
+
         return context + name
 
 
 def remove_project_static_includes(root: str):
+    """Remove all static include from all files in a dir.
+    The pycparser can't parse any preprocess syntax and therefore after we build the include graph we need to remove it.
+
+    Args:
+        root (str): the root directory to start from.
+    """
+
     for path, _, files in os.walk(root):
         for file in files:
             full_path = os.path.join(path, file)
@@ -460,15 +683,25 @@ def remove_project_static_includes(root: str):
                 fd.write(static_removed)
 
 
-def mark_file(file_name: str, marked: List[str]) -> Set[str]:
-    project_root = "/".join(file_name.split("/")[:-1])
-    project_graph_manager = mai.ProjectGraph(file_name, project_root)
+def mark_project(start_file_name: str, marked: List[str]) -> Set[str]:
+    """Mark all variables in a project.
+
+    Args:
+        file_name (str): The name of the file to mark
+        marked (List[str]): A list of already marked variables.
+
+    Returns:
+        Set[str]: The marked variables found in the project
+    """
+
+    project_root = "/".join(start_file_name.split("/")[:-1])
+    project_graph_manager = mai.ProjectGraph(start_file_name, project_root)
 
     remove_project_static_includes(project_root)
 
-    ast = parse_file(file_name, use_cpp=False)
+    ast = parse_file(start_file_name, use_cpp=False)
 
-    pp = PiniParser(set(marked), filename=file_name,
+    pp = PiniParser(set(marked), filename=start_file_name,
                     graph_manager=project_graph_manager)
     pp.parse(ast, "")
     return sorted(list(pp.get_marked()))
@@ -483,5 +716,5 @@ if __name__ == "__main__":
     print("| Marked variables are: |")
     print("@=======================@")
 
-    for marked_var in mark_file(args.filename, [str(args.filename) + "@main@x"]):
+    for marked_var in mark_project(args.filename, [str(args.filename) + "@main@x"]):
         print(marked_var)
